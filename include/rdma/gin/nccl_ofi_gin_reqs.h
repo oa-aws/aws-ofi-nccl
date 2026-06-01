@@ -56,6 +56,13 @@ public:
  */
 class nccl_net_ofi_gin_base_req : public nccl_ofi_gin_req_t {
 public:
+	nccl_net_ofi_gin_base_req()
+	{
+#if HAVE_LIBESP == 1
+		start_time = ESP_GET_WALL_CLOCK();
+#endif
+	}
+
 	void set_fl_entry(nccl_ofi_freelist::fl_entry *entry)
 	{
 		this->fl_elem = entry;
@@ -71,10 +78,29 @@ public:
 	nvtxRangeId_t trace_id;
 #endif
 
+#if HAVE_LIBESP == 1
+	inline void set_start_time()
+	{
+		start_time = ESP_GET_WALL_CLOCK();
+	}
+	inline uint64_t get_start_time() const
+	{
+		return start_time;
+	}
+	inline void reset_start_time()
+	{
+		start_time = 0;
+	}
+#endif
+
 private:
 	/* Source freelist element. This allows the request to be returned to a
 	   request freelist when complete */
 	nccl_ofi_freelist::fl_entry *fl_elem = nullptr;
+
+#if HAVE_LIBESP == 1
+	uint64_t start_time;
+#endif
 };
 
 /**
@@ -108,7 +134,7 @@ public:
 	virtual int handle_cq_entry(struct fi_cq_entry *cq_entry_base, fi_addr_t src_addr,
 				    uint16_t rail_id) = 0;
 
-#if HAVE_NVTX_TRACING || HAVE_LIBLTTNG_UST
+#if HAVE_NVTX_TRACING || HAVE_LIBLTTNG_UST || HAVE_LIBESP
 	/**
 	 * Set the trace information for LTTNG and NVTX
 	 * @param dev_arg: device ID
@@ -123,7 +149,7 @@ public:
 #endif
 
 protected:
-#if HAVE_NVTX_TRACING || HAVE_LIBLTTNG_UST
+#if HAVE_NVTX_TRACING || HAVE_LIBLTTNG_UST || HAVE_LIBESP
 	int dev;
 	uint32_t rank;
 	uint16_t msg_seq_num;

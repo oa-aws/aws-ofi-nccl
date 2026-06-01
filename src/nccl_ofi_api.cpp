@@ -12,6 +12,10 @@
 #include "nccl_ofi_param.h"
 #include "stats/histogram.h"
 
+#if HAVE_LIBESP == 1
+#include "nccl_ofi_tracepoint.h"
+#endif
+
 
 static_assert(sizeof(nccl_net_ofi_conn_handle_t) <= NCCL_NET_HANDLE_MAXSIZE,
 	       "Size of OFI Handle is too large");
@@ -64,6 +68,11 @@ ncclResult_t nccl_net_ofi_init(ncclDebugLogger_t logFunction)
 		return check_return(ncclSystemError);
 	}
 
+#if HAVE_LIBESP == 1
+	// for now ignore result
+	espInitialize();
+#endif
+
 	ofi_log_function = logFunction;
 
 	// initialize environment variable system
@@ -99,6 +108,10 @@ ncclResult_t nccl_net_ofi_fini()
 		print_all_histograms();
 		delete plugin;
 		plugin = NULL;
+#if HAVE_LIBESP == 1
+		// explicitly terminate esp library now to avoid crashes
+		espTerminate();
+#endif
 	}
 	return ret;
 }
@@ -183,6 +196,11 @@ ncclResult_t nccl_net_ofi_listen(int dev_id, void *handle, void **lComm,
 		}
 
 		ret = ep->listen(static_cast<nccl_net_ofi_conn_handle_t *>(handle), listen_comm);
+
+#if HAVE_LIBESP == 1
+		// create profiling group for the rails send/recv BW
+		esp_track_rail_bw(dev_id, device);
+#endif
 	}
 	catch (const std::exception &e) {
 		NCCL_OFI_WARN("Caught exception in plugin listen: %s", e.what());

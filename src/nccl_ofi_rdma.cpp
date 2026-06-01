@@ -504,6 +504,10 @@ static inline int inc_req_completion(nccl_net_ofi_rdma_req *req,
 		NCCL_OFI_TRACE_COMPLETIONS(req->dev_id, req->get_type(), req, req);
 	}
 
+#if HAVE_LIBESP == 1
+	esp_handle_req_complete(req, ncompls, total_ncompls);
+#endif
+
 	return -ret;
 }
 
@@ -555,6 +559,10 @@ static inline int inc_recv_seg_completion(rdma_recv_req *recv_data,
 
 		/* Total number of completions have arrived */
 		req->state = NCCL_OFI_RDMA_REQ_COMPLETED;
+
+#if HAVE_LIBESP == 1
+		esp_handle_request_assembly(req);
+#endif
 
 		/* Release lock of receive segment request before
 		 * receive request is set to completed to avoid
@@ -1118,6 +1126,10 @@ static inline int handle_write_comp(struct fi_cq_data_entry *cq_entry, nccl_net_
 	recv_data->recvs[recv_idx].total_segms = total_segms;
 	recv_data->recvs[recv_idx].ncompls++;
 
+#if HAVE_LIBESP == 1
+	esp_handle_write(req, recv_data, recv_idx, total_segms);
+#endif
+
 	/* Only when entire sub recv completed, update parent req */
 	if (recv_data->recvs[recv_idx].ncompls == (int)total_segms) {
 		ret = inc_recv_seg_completion(recv_data, recv_data->recvs[recv_idx].recv_size);
@@ -1659,6 +1671,13 @@ int rdma_send_req::free(bool dec_inflight_reqs)
 		   if we ever refactor the locking strategy, we should revisit
 		   this. */
 		(s_comm->num_inflight_writes)--;
+		// take time stamp once for all samples
+		ESP_BEGIN_BATCH_REPORT()
+		{
+			ESP_REPORT_COUNTER_DEC_TIME(ofi_inflight_write_bytes, this->buff_len, ESP_CURR_TIME);
+			ESP_REPORT_COUNTER_DEC_TIME(ofi_inflight_write_count, 1, ESP_CURR_TIME);
+		}
+		ESP_END_BATCH_REPORT()
 	}
 
 	if (this->schedule) {
@@ -2460,6 +2479,7 @@ int rdma_send_req::post()
 		void *desc = fi_mr_desc(rail_mr_handle);
 
 		if (this->no_target_completion) {
+			ESP_BEGIN_FI_WRITE(xfer_info);
 			ret = fi_write(comm_rail->local_ep,
 				       (void *)((uintptr_t)this->buff + xfer_info->offset),
 				       xfer_info->msg_size, desc,
@@ -2467,7 +2487,9 @@ int rdma_send_req::post()
 				       this->remote_buff_offset + xfer_info->offset,
 				       this->remote_mr_key[rail_id],
 				       rdma_req_get_ofi_context(this, rail_id));
+			ESP_END_FI_WRITE();
 		} else {
+			ESP_BEGIN_FI_WRITE_DATA(xfer_info);
 			ret = fi_writedata(comm_rail->local_ep,
 					   (void *)((uintptr_t)this->buff + xfer_info->offset),
 					   xfer_info->msg_size, desc, this->wdata,
@@ -2475,6 +2497,7 @@ int rdma_send_req::post()
 					   this->remote_buff_offset + xfer_info->offset,
 					   this->remote_mr_key[rail_id],
 					   rdma_req_get_ofi_context(this, rail_id));
+			ESP_END_FI_WRITE_DATA();
 		}
 
 		if ((ret != 0) && (ret != -FI_EAGAIN)) {
@@ -4719,6 +4742,11 @@ nccl_net_ofi_rdma_req::nccl_net_ofi_rdma_req(nccl_net_ofi_rdma_req_type_t type)
 	this->size = 0;
 	this->state = NCCL_OFI_RDMA_REQ_CREATED;
 	this->elem = nullptr;
+#if HAVE_LIBESP == 1
+	this->req_start_time = 0;
+	this->req_assembly_start_time = 0;
+	this->req_first_rail_time = 0;
+#endif
 }
 
 
@@ -5671,6 +5699,8 @@ int nccl_net_ofi_rdma_send_comm::send(void *data, size_t size, int tag,
 			      NCCL_OFI_MAX_SEND_REQUESTS);
 		return ret;
 	}
+
+	ESP_SCOPED_LATENCY_HISTOGRAM(isend, ESP_POW2_BIN_GENERATOR(8, 0, 0), true);
 
 	endpoint = (nccl_net_ofi_rdma_ep_t *)s_comm->ep.get();
 	assert(endpoint != NULL);

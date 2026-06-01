@@ -370,6 +370,10 @@ typedef struct rdma_req_recv_sub {
 	bool consumed;
 	/* (Eager) pointer to eager local copy request for this sub-recv */
 	nccl_net_ofi_rdma_req *eager_copy_req;
+
+#if HAVE_LIBESP == 1
+	uint64_t start_ticks = 0;
+#endif
 } rdma_req_recv_sub_t;
 
 /**
@@ -415,6 +419,12 @@ public:
 
 	/* Size of completed request */
 	size_t size;
+
+#if HAVE_LIBESP == 1
+	uint64_t req_start_time = 0;
+	uint64_t req_assembly_start_time = 0; // from first segment
+	uint64_t req_first_rail_time = 0;     // from first full part
+#endif
 
 	/*
 	 * Protect updating critical fields such as size and ncompls when

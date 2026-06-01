@@ -216,10 +216,16 @@ int nccl_ofi_rdma_gin_iputsignal_req::test(int *done)
 		std::lock_guard scoped_ep_lock(gin_ep.ep_lock);
 		NCCL_OFI_TRACE(NCCL_NET, "Completed iputSignal seq num %hu on initiator",
 			       this->msg_seq_num);
+
+#if HAVE_LIBESP == 1
+		ESP_BEGIN_BATCH_REPORT();
 		NCCL_OFI_TRACE_GIN_IPUT_SIGNAL_END(gin_comm.get_dev(), &gin_comm, peer_rank,
 						   msg_seq_num, this);
 		NCCL_OFI_TRACE_GIN_TEST_FUNC_END(gin_comm.get_dev(), &gin_comm,
 						 peer_rank, msg_seq_num, this, 1, 1);
+		ESP_END_BATCH_REPORT();
+#endif
+
 		gin_comm.get_resources().return_req_to_pool(this);
 		return 0;
 	} else {
@@ -228,8 +234,12 @@ int nccl_ofi_rdma_gin_iputsignal_req::test(int *done)
 		 */
 	}
 
+#if HAVE_LIBESP == 1
+	ESP_BEGIN_BATCH_REPORT();
 	NCCL_OFI_TRACE_GIN_TEST_FUNC_END(gin_comm.get_dev(), &gin_comm,
 					 peer_rank, msg_seq_num, this, *done, 0);
+	ESP_END_BATCH_REPORT();
+#endif
 
 	/* If not done, the GIN plugin will do nothing.
 
